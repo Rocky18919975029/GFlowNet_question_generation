@@ -1,0 +1,17 @@
+# @package model
+# Defines the generative model to be fine-tuned.
+
+name: "gpt2-large"
+use_4bit: true # Recommended to set to true to save memory with QLoRA.
+
+# Configuration for the LoRA adapters from PEFT.
+# Hydra will instantiate this class directly.
+lora_config:
+  _target_: peft.LoraConfig
+  r: 16                # LoRA rank
+  lora_alpha: 32         # LoRA alpha
+  lora_dropout: 0.05
+  bias: "none"
+  task_type: "CAUSAL_LM"
+  target_modules:
+    - "c_attn" # Target attention layers for GPT-2

@@ -1,0 +1,24 @@
+# @package model
+# Defines the Gemma-2B model to be fine-tuned.
+
+name: "google/gemma-2b-it"  # The instruction-tuned version is a good choice
+use_4bit: true
+
+# LoRA configuration for Gemma.
+# Note that the target_modules are different from GPT-2.
+lora_config:
+  _target_: peft.LoraConfig
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  bias: "none"
+  task_type: "CAUSAL_LM"
+  # These are the typical layers to target for LoRA on Gemma models.
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"

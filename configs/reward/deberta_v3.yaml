@@ -1,0 +1,6 @@
+# @package reward
+# Defines parameters for the reward model.
+
+# configs/reward/deberta_v3.yaml
+nli_model_name: "NDugar/v3-Large-mnli"
+nli_batch_size: 16 # Batch size for running the NLI model, adjust based on GPU memory.

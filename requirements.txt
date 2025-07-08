@@ -1,0 +1,13 @@
+torch
+pytorch-lightning
+torchdata  # <-- ADD THIS LINE
+transformers
+peft
+bitsandbytes
+hydra-core
+hydra-colorlog
+wandb
+pandas
+editdistance
+sentencepiece
+protobuf

@@ -1,0 +1,7 @@
+# configs/logger/wandb.yaml (Offline Mode)
+
+# @package logger
+project: "contradiction-gfn"
+name: null
+log_model: false
+mode: offline # <--- ADD THIS LINE

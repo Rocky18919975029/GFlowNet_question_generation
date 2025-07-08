@@ -1,0 +1,87 @@
+# configs/config.yaml
+
+defaults:
+  - _self_
+  - model: gpt2-large
+  - reward: deberta_v3
+  - logger: wandb
+  - callbacks: model_checkpoint
+  - override hydra/job_logging: colorlog
+  - override hydra/hydra_logging: colorlog
+
+# Global seed for reproducibility
+seed: 42
+
+# Data configuration
+data:
+  path: "data/ZSRE_1000.pkl"
+  train_size: 0.9
+  limit_data: null
+
+# Training loop parameters
+training:
+  lr: 1e-4
+  epochs: 10
+  accumulate_grad_batches: 8
+  log_every_n_steps: 100
+
+# Task-specific and GFlowNet hyperparameters
+task:
+  # This is the INFERENCE prompt for the GFlowNet sampler
+  task_prompt: "Generate a question about {subject}:\nQuestion:"
+  
+  # This is the prompt for generating the answer y
+  answer_prompt_template: |
+    Provide a concise, direct answer to the question.
+
+    Example 1:
+    Question: Which country is Paris the capital of?
+    Answer: France
+
+    Example 2:
+    Question: What is the main component of Earth's atmosphere?
+    Answer: Nitrogen
+
+    Example 3:
+    Question: Who wrote the play 'Hamlet'?
+    Answer: William Shakespeare
+
+    Question: {question}
+    Answer:
+
+  # Weight for the p(x|prompt) likelihood term in the reward
+  likelihood_weight: 0.2
+
+  n_samples: 16
+  min_question_len: 5
+  max_question_len: 25
+  subtb_lambda: 1.0
+
+  pf_temp_prob: 0.5
+  pf_temp_low: 0.7
+  pf_temp_high: 1.5
+  
+  use_buffer_prob: 0.5
+  replay_buffer_size: 128
+
+  reward_temp_start: 1.0
+  reward_temp_end: 2.0
+  reward_temp_horizon: 2000
+  n_probes: 5
+
+# Callbacks
+callbacks:
+  - _target_: pytorch_lightning.callbacks.ModelCheckpoint
+    monitor: "val/loss"
+    mode: "min"
+    save_top_k: 1
+    dirpath: "checkpoints/"
+    filename: "{epoch}-{step}-{val_loss:.3f}"
+    every_n_epochs: 1
+
+# Logger
+logger:
+  _target_: pytorch_lightning.loggers.WandbLogger
+  project: ${logger.project}
+  name: ${logger.name}
+  log_model: ${logger.log_model}
