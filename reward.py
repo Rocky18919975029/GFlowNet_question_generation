@@ -1,5 +1,3 @@
-# reward.py
-
 import torch
 from torch.nn.functional import log_softmax
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
@@ -45,21 +43,15 @@ class ContradictionReward:
         training_state = self.base_model.training
         lora_to_base(self.base_model)
 
-        # 1. Calculate log P(x | prompt) using the base model
         log_p_likelihood = self._calculate_log_p_likelihood(generated_trajectories, prompt_length)
-
-        # 2. Calculate contradiction score
         log_c, _ = self._calculate_contradiction_score(generated_trajectories, z_prime_text, prompt_length)
 
-        # 3. Combine the two components
         log_reward = log_c + self.likelihood_weight * log_p_likelihood
         
-        # 4. Apply hard length penalty
         reward_unpenalized = log_reward.clone()
         len_penalty_mask = torch.arange(log_reward.shape[1], device=log_reward.device) < self.min_len
         log_reward[:, len_penalty_mask] = -99
 
-        # 5. Scale by temperature
         log_reward /= self.temperature
         reward_unpenalized /= self.temperature
 
@@ -70,7 +62,6 @@ class ContradictionReward:
         return log_reward, reward_unpenalized
 
     def _calculate_log_p_likelihood(self, trajectories, prompt_length: int):
-        """Calculates log P(x | prompt) as a relevance/likelihood score."""
         logits = self.base_model(trajectories).logits
         question_logits = logits[:, prompt_length - 1 : -1]
         question_tokens = trajectories[:, prompt_length:]
@@ -93,8 +84,8 @@ class ContradictionReward:
         
         premise_hypothesis_pairs = []
         for i in range(len(partial_questions_text)):
-            question_stem = partial_questions_text[i].strip().replace("?", "")
-            hypothesis = f"The answer to '{question_stem}' is {answers_text[i]}."
+            # The hypothesis for the NLI model is just the raw, full-sentence answer.
+            hypothesis = answers_text[i]
             premise_hypothesis_pairs.append([z_prime_text, hypothesis])
 
         contradiction_log_probs = []
@@ -109,7 +100,6 @@ class ContradictionReward:
         return log_c_scores, answers_text
         
     def _generate_answers(self, questions: list[str]) -> list[str]:
-        """Generates answers for a list of questions using a few-shot prompt from config."""
         answers = []
         full_prompts = [self.answer_prompt_template.format(question=q) for q in questions]
 
@@ -117,8 +107,11 @@ class ContradictionReward:
             batch_prompts = full_prompts[i : i + self.nli_batch_size]
             inputs = self.base_tokenizer(batch_prompts, return_tensors='pt', padding=True).to(self.base_model.device)
             outputs = self.base_model.generate(
-                **inputs, max_new_tokens=15, pad_token_id=self.base_tokenizer.eos_token_id,
-                eos_token_id=self.base_tokenizer.encode("\n")[0], do_sample=False,
+                **inputs,
+                max_new_tokens=30, # Increased to allow for full-sentence answers
+                pad_token_id=self.base_tokenizer.eos_token_id,
+                eos_token_id=self.base_tokenizer.encode("\n")[0],
+                do_sample=False,
             )
             new_tokens = outputs[:, inputs['input_ids'].shape[1]:]
             decoded_answers = self.base_tokenizer.batch_decode(new_tokens, skip_special_tokens=True)

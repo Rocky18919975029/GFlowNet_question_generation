@@ -1,5 +1,3 @@
-# train.py
-
 from types import MethodType
 import hydra
 import torch
@@ -47,7 +45,7 @@ def train(config: DictConfig):
         base_model=model, base_tokenizer=tokenizer,
         nli_model_name=config.reward.nli_model_name,
         likelihood_weight=config.task.likelihood_weight,
-        answer_prompt_template=config.task.answer_prompt_template,
+        answer_prompt_template=config.task.answer_prompt_template, # Pass the new template
         termination_token_id=end_of_question_token_id,
         min_len=config.task.min_question_len,
         temperature=config.task.reward_temp_start,
@@ -74,10 +72,21 @@ def train(config: DictConfig):
         reward_temp_horizon=config.task.reward_temp_horizon, val_probes=val_probes, use_4bit=config.model.use_4bit)
 
     logger = hydra.utils.instantiate(config.logger)
+    
+    strategy = config.trainer.strategy
+    if strategy == "ddp":
+        strategy = pl.strategies.DDPStrategy(find_unused_parameters=True)
+
     trainer = pl.Trainer(
-        accelerator="gpu", devices=1, max_epochs=config.training.epochs,
+        accelerator=config.trainer.accelerator,
+        devices=config.trainer.devices,
+        num_nodes=config.trainer.num_nodes,
+        strategy=strategy,
+        max_epochs=config.training.epochs,
         accumulate_grad_batches=config.training.accumulate_grad_batches,
-        logger=logger, callbacks=[hydra.utils.instantiate(c) for c in config.callbacks])
+        logger=logger,
+        callbacks=[hydra.utils.instantiate(c) for c in config.callbacks]
+    )
 
     if config.model.use_4bit:
         task.to = MethodType(lambda s, *args, **kwargs: s, task)

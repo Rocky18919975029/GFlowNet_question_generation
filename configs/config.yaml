@@ -1,5 +1,3 @@
-# configs/config.yaml
-
 defaults:
   - _self_
   - model: gpt2-large
@@ -14,7 +12,7 @@ seed: 42
 
 # Data configuration
 data:
-  path: "data/ZSRE_1000.pkl"
+  path: "data/ZSRE_5000.pkl"
   train_size: 0.9
   limit_data: null
 
@@ -25,26 +23,33 @@ training:
   accumulate_grad_batches: 8
   log_every_n_steps: 100
 
+# Pytorch Lightning Trainer configuration
+trainer:
+  accelerator: "gpu"
+  strategy: "auto"
+  devices: 1
+  num_nodes: 1
+
 # Task-specific and GFlowNet hyperparameters
 task:
   # This is the INFERENCE prompt for the GFlowNet sampler
   task_prompt: "Generate a question about {subject}:\nQuestion:"
   
-  # This is the prompt for generating the answer y
+  # This is the few-shot prompt to generate a full, declarative sentence as the answer y.
   answer_prompt_template: |
-    Provide a concise, direct answer to the question.
+    Rephrase the question into a complete, declarative sentence that provides the answer.
 
     Example 1:
     Question: Which country is Paris the capital of?
-    Answer: France
+    Answer: The capital of France is Paris.
 
     Example 2:
     Question: What is the main component of Earth's atmosphere?
-    Answer: Nitrogen
+    Answer: The main component of Earth's atmosphere is Nitrogen.
 
     Example 3:
     Question: Who wrote the play 'Hamlet'?
-    Answer: William Shakespeare
+    Answer: The play 'Hamlet' was written by William Shakespeare.
 
     Question: {question}
     Answer:

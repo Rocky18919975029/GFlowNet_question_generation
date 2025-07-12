@@ -1,0 +1,23 @@
+# SLURM and other log files
+*.out
+*.err
+*.log
+
+# Hydra outputs
+outputs/
+multirun/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data, models, and W&B
+data/
+checkpoints/
+wandb/
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store

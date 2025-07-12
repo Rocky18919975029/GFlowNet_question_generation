@@ -1,7 +1,13 @@
-# configs/logger/wandb.yaml (Offline Mode)
+# In configs/logger/wandb.yaml
 
 # @package logger
 project: "contradiction-gfn"
 name: null
 log_model: false
-mode: offline # <--- ADD THIS LINE
+mode: offline
+
+# --- ADD THIS LINE ---
+# Define 'group' as a valid parameter with a default value of null.
+# This allows it to be overridden from the command line.
+group: null
+# --- END OF ADDITION ---
