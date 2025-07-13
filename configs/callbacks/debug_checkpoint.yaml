@@ -1,0 +1,14 @@
+# configs/callback/debug_checkpoint.yaml
+
+# @package callbacks
+
+# This callback is specifically for short, time-limited debug runs.
+- _target_: pytorch_lightning.callbacks.ModelCheckpoint
+  dirpath: "checkpoints/"
+  filename: "debug-step={step}-loss={train/loss:.3f}"
+  # Save a checkpoint based on the number of training steps.
+  every_n_train_steps: 200
+  # We still monitor the loss to save the best one found so far.
+  monitor: "train/loss"
+  mode: "min"
+  save_top_k: 1

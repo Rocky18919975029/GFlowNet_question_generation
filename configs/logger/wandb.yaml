@@ -1,13 +1,9 @@
-# In configs/logger/wandb.yaml
+# configs/logger/wandb.yaml
 
-# @package logger
+_target_: pytorch_lightning.loggers.WandbLogger
+
 project: "contradiction-gfn"
-name: null
+name: null  # Let wandb generate a name
+group: "ddp-oom-tests" # Set a group name for this series of tests
 log_model: false
 mode: offline
-
-# --- ADD THIS LINE ---
-# Define 'group' as a valid parameter with a default value of null.
-# This allows it to be overridden from the command line.
-group: null
-# --- END OF ADDITION ---

@@ -1,16 +1,12 @@
-# lightning_data.py
-
 import warnings
 import pandas as pd
 from torch.utils.data import DataLoader, MapDataPipe
 import pytorch_lightning as pl
+import os
 
 warnings.filterwarnings("ignore", ".*does not have many workers.*")
 
 class StatementPairDataModule(pl.LightningDataModule):
-    """
-    A LightningDataModule for loading (original_fact, edit_fact, subject) tuples from a pickle file.
-    """
     def __init__(self, data_path: str, tokenizer, train_size: float = 0.9, limit_data: int = None):
         super().__init__()
         self.save_hyperparameters(ignore="tokenizer")
@@ -19,7 +15,13 @@ class StatementPairDataModule(pl.LightningDataModule):
         self.val_data = None
 
     def setup(self, stage: str):
+        rank = os.environ.get("LOCAL_RANK", "N/A")
+        print(f"--- [DataModule on Rank {rank}] Entering setup()... ---")
+        
+        print(f"--- [DataModule on Rank {rank}] Reading pickle file: {self.hparams.data_path} ---")
         df = pd.read_pickle(self.hparams.data_path)
+        print(f"--- [DataModule on Rank {rank}] Pickle file read successfully. ---")
+        
         if self.hparams.limit_data is not None:
             df = df.head(self.hparams.limit_data)
         if len(df) == 1:
@@ -28,21 +30,25 @@ class StatementPairDataModule(pl.LightningDataModule):
             num_train = int(len(df) * self.hparams.train_size)
             if len(df) > 0 and num_train == 0:
                 num_train = 1
+                
         train_df = df.iloc[:num_train].reset_index(drop=True)
         val_df = df.iloc[num_train:].reset_index(drop=True)
         self.train_data = StatementPairDataPipe(train_df, self.tokenizer)
         self.val_data = StatementPairDataPipe(val_df, self.tokenizer)
+        
+        print(f"--- [DataModule on Rank {rank}] Finished setup(). ---")
 
     def train_dataloader(self):
+        rank = os.environ.get("LOCAL_RANK", "N/A")
+        print(f"--- [DataModule on Rank {rank}] Creating train_dataloader(). ---")
         return DataLoader(self.train_data, shuffle=True, batch_size=None, num_workers=0)
 
     def val_dataloader(self):
+        rank = os.environ.get("LOCAL_RANK", "N/A")
+        print(f"--- [DataModule on Rank {rank}] Creating val_dataloader(). ---")
         return DataLoader(self.val_data, batch_size=None, num_workers=0)
 
 class StatementPairDataPipe(MapDataPipe):
-    """
-    A custom DataPipe that processes DataFrame rows into tokenized tensors for z, z_prime, and subject.
-    """
     def __init__(self, dataframe: pd.DataFrame, tokenizer):
         super().__init__()
         self.data = dataframe

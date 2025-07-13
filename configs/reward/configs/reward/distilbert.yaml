@@ -1,0 +1,4 @@
+# configs/reward/distilbert.yaml
+
+nli_model_name: "distilbert-base-uncased-mnli"
+nli_batch_size: 16
