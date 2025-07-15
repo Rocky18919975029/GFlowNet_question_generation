@@ -1,12 +1,8 @@
-# configs/callback/model_checkpoint.yaml
-
-# @package callbacks # This defines the group name for callbacks
-# --- CRITICAL CHANGE: This defines this config as an ITEM in a list ---
-- _target_: pytorch_lightning.callbacks.ModelCheckpoint
-  monitor: "val/loss"
-  mode: "min"
-  save_top_k: 1
-  dirpath: "checkpoints/"
-  filename: "{epoch}-{step}-{val_loss:.3f}"
-  every_n_epochs: 1
-# --- END CRITICAL CHANGE ---
+# @package callbacks
+_target_: pytorch_lightning.callbacks.ModelCheckpoint
+monitor: "val/loss" # We are now logging this
+mode: "min"
+save_top_k: 1
+dirpath: "checkpoints/"
+filename: "{epoch}-{step}-{val_loss:.3f}"
+# Let's remove every_n_epochs to let val_check_interval control it

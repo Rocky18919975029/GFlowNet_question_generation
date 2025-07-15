@@ -3,7 +3,7 @@ defaults:
   - model: gpt2-large
   - reward: deberta_v3
   - logger: wandb
-  - callbacks: model_checkpoint
+  - callbacks: model_checkpoint # This provides default, but we're not using it in train.py
   - override hydra/job_logging: colorlog
   - override hydra/hydra_logging: colorlog
 
@@ -13,9 +13,10 @@ data:
   path: "data/zsre_1000.jsonl"
   train_size: 0.9
   limit_data: null
+  num_workers: 2
 
 buffer:
-  redis_host: "localhost" # Assumes Redis is running on the same node as the job
+  redis_host: "localhost"
   redis_port: 6379
 
 training:
@@ -29,19 +30,7 @@ trainer:
   strategy: "auto"
   devices: 1
   num_nodes: 1
-
-model:
-  name: "gpt2-large"
-  use_4bit: true
-  lora_config:
-    _target_: peft.LoraConfig
-    r: 16
-    lora_alpha: 32
-    lora_dropout: 0.05
-    bias: "none"
-    task_type: "CAUSAL_LM"
-    target_modules:
-      - "c_attn"
+  # val_check_interval is not specified here or in run.sh, as this version has no validation.
 
 task:
   task_prompt: "Generate a question about {subject}:\nQuestion:"
@@ -77,23 +66,16 @@ task:
   reward_temp_end: 2.0
   reward_temp_horizon: 2000
   n_probes: 5
-  # --- ADDED: Checkpoint save interval to task config ---
-  checkpoint_save_interval: 200 # Default value, can be overridden by sbatch
+  checkpoint_save_interval: 200 # This value will be used by the task's manual saving.
 
-callbacks:
-  - _target_: pytorch_lightning.callbacks.ModelCheckpoint
-    monitor: "val/loss"
-    mode: "min"
-    save_top_k: 1
-    dirpath: "checkpoints/"
-    filename: "{epoch}-{step}-{val_loss:.3f}"
-    every_n_epochs: 1
+# No `callbacks: []` or explicit `callbacks: ...` at the root level.
+# `train.py` passes `callbacks=[]` to the Trainer, effectively overriding any default.
 
 logger:
   _target_: pytorch_lightning.loggers.WandbLogger
   project: "contradiction-gfn"
   name: null
-  group: null # Let wandb handle grouping or set it in the sbatch script
+  group: null
   log_model: false
   mode: offline
 

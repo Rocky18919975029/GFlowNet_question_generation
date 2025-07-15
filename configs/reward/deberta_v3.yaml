@@ -1,3 +1,5 @@
+# configs/reward/deberta_v3.yaml
+
 # @package reward
 # Defines parameters for the reward model.
 

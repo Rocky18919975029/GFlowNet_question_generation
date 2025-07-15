@@ -1,8 +1,8 @@
+# reward.py
+
 import torch
 from torch.nn.functional import log_softmax
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-# The `utils` import is no longer needed as we've removed lora_to_base/base_to_lora
-# from utils import lora_to_base, base_to_lora
 
 class ContradictionReward:
     def __init__(

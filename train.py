@@ -7,9 +7,6 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from peft import get_peft_model, prepare_model_for_kbit_training
 import os
 
-# --- FIX: Removed ddp_print import ---
-# from ddp_utils import ddp_print
-
 from lightning_data_scalable import ScalableDataModule
 from lightning_module import ContradictionGFNTask
 from reward import ContradictionReward
@@ -71,8 +68,11 @@ def train(config: DictConfig):
         buffer_size=config.task.replay_buffer_size,
         termination_token_id=end_of_question_token_id
     )
-    if int(os.environ.get("SLURM_PROCID", 0)) == 0: # Use SLURM_PROCID for global rank 0
+    
+    if int(os.environ.get("RANK", 0)) == 0:
+        print("--- Rank 0 process is resetting the Redis buffer. ---", flush=True)
         reward_buffer.reset()
+        
     data_module = ScalableDataModule(
         data_path=config.data.path,
         tokenizer=tokenizer,
@@ -109,8 +109,9 @@ def train(config: DictConfig):
     strategy = config.trainer.strategy
     if strategy == "ddp":
         from lightning_fabric.plugins.environments import LightningEnvironment
+        # --- REVERT: Change back to True as is good practice ---
         strategy = pl.strategies.DDPStrategy(
-            cluster_environment=LightningEnvironment(), # Use LightningEnvironment to bypass strict SLURM validation
+            cluster_environment=LightningEnvironment(),
             find_unused_parameters=True
         )
 

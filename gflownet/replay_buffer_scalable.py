@@ -79,6 +79,11 @@ class RedisReplayBuffer:
         
         # We now have a list of top-reward items, let's randomly sample from it
         num_available = len(sampled_items)
+
+        # --- FIX: Manually set a seed for this operation to ensure all DDP ranks make the same choice ---
+        # This seed is deterministic based on the prompt, ensuring all ranks sample the same indices.
+        np.random.seed(abs(hash(redis_key)) % (2**32 - 1))
+        
         indices_to_sample = np.random.choice(num_available, size=batch_size, replace=True)
 
         action_seqs = []

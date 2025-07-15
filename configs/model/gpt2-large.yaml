@@ -2,7 +2,7 @@
 # Defines the generative model to be fine-tuned.
 
 name: "gpt2-large"
-use_4bit: true # Recommended to set to true to save memory with QLoRA.
+use_4bit: false # --- CHANGED: Temporarily disable 4-bit quantization for debugging DDP ---
 
 # Configuration for the LoRA adapters from PEFT.
 # Hydra will instantiate this class directly.
