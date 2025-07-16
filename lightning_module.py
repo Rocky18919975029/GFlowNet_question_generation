@@ -1,3 +1,5 @@
+# lightning_module.py
+
 import random
 from functools import partial
 import torch
@@ -74,10 +76,18 @@ class ContradictionGFNTask(pl.LightningModule):
         if self.trainer.is_global_zero:
             use_buffer = random.random() < self.hparams.use_buffer_prob
             
+            # --- MODIFIED: Renamed to avoid confusion ---
+            action_seq_rank0 = None
+            log_r_final_rank0 = None
+            log_r_unscaled_rank0 = None
+
             if use_buffer:
                 buffer_sample = self.reward_buffer.sample(prompt_tokens_single, self.hparams.n_samples)
                 if buffer_sample and buffer_sample[0] is not None:
+                    # Note: Redis buffer only stores final rewards, so we don't have unscaled rewards here.
+                    # We will set unscaled to be the same as scaled for buffer samples for simplicity.
                     action_seq_rank0, log_r_final_rank0 = buffer_sample
+                    log_r_unscaled_rank0 = log_r_final_rank0
                 else:
                     use_buffer = False
             
@@ -88,7 +98,8 @@ class ContradictionGFNTask(pl.LightningModule):
                 
                 real_reward_fn = partial(self.reward_model.score, z_prime_text=z_prime_text, prompt_length=prompt_len)
                 
-                generated_trajectories_rank0, _, _, log_r_final_rank0, _ = self.forward(
+                # --- MODIFIED: Capture the new unscaled reward return value ---
+                generated_trajectories_rank0, _, _, log_r_final_rank0, log_r_unscaled_rank0 = self.forward(
                     prompt_tokens, z_prime_text=z_prime_text, reward_fn=real_reward_fn, pf_temperature=pf_temp
                 )
                 action_seq_rank0 = generated_trajectories_rank0[:, prompt_len:]
@@ -97,22 +108,27 @@ class ContradictionGFNTask(pl.LightningModule):
                     self.reward_buffer.add_batch(
                         prompt_tokens=prompt_tokens_single, 
                         generated_questions=action_seq_rank0, 
-                        logrewards=log_r_final_rank0.squeeze(-1),
+                        # --- MODIFIED: Use the unscaled reward for storing in the buffer for consistency ---
+                        logrewards=log_r_unscaled_rank0.squeeze(-1),
                         tokenizer=self.tokenizer
                     )
             
             action_seq_rank0 = action_seq_rank0.cpu()
             log_r_final_rank0 = log_r_final_rank0.view(-1, 1).cpu()
+            # --- MODIFIED: Add unscaled reward to the broadcast list ---
+            log_r_unscaled_rank0 = log_r_unscaled_rank0.view(-1, 1).cpu()
 
-            objects_to_broadcast = [action_seq_rank0, log_r_final_rank0]
+            objects_to_broadcast = [action_seq_rank0, log_r_final_rank0, log_r_unscaled_rank0]
         else:
-            objects_to_broadcast = [None, None]
+            objects_to_broadcast = [None, None, None]
 
         if self.trainer.world_size > 1:
             torch.distributed.broadcast_object_list(objects_to_broadcast, src=0)
         
-        action_seq, log_r_final = objects_to_broadcast
+        # --- MODIFIED: Unpack the new unscaled reward ---
+        action_seq, log_r_final, log_r_unscaled = objects_to_broadcast
         
+        # --- MODIFIED: The reward_fn now returns two Nones ---
         dummy_reward_fn = lambda trajectories: (None, None)
         generated_trajectories, log_pf, log_pterm, _, _ = self.forward(
             prompt_tokens, z_prime_text=z_prime_text, reward_fn=dummy_reward_fn, action_seq=action_seq
@@ -121,15 +137,23 @@ class ContradictionGFNTask(pl.LightningModule):
         gen_len = generated_trajectories.shape[1] - prompt_len
         if gen_len > 0:
             log_r = log_r_final.to(self.device).expand(-1, gen_len)
+            # --- MODIFIED: Expand the unscaled reward as well ---
+            log_r_unpenalized = log_r_unscaled.to(self.device).expand(-1, gen_len)
         else:
             log_r = torch.empty(self.hparams.n_samples, 0, device=self.device)
+            log_r_unpenalized = torch.empty(self.hparams.n_samples, 0, device=self.device)
 
         loss = modified_subtb_loss(log_pf=log_pf, log_r=log_r, log_pterm=log_pterm, generated_text=generated_trajectories, termination_token_id=self.end_of_question_token_id, prompt_len=prompt_len, subtb_lambda=self.hparams.subtb_lambda)
         
-        _, last_log_r, _, question_len = get_termination_vals(generated_text=generated_trajectories, log_pf=log_pf, log_pterm=log_pterm, log_r=log_r, log_r_unpenalized=None, termination_token_id=self.end_of_question_token_id, prompt_len=prompt_len)
+        # --- MODIFIED: Pass the unscaled reward tensor to get_termination_vals ---
+        _, last_log_r, last_log_r_unpenalized, question_len = get_termination_vals(generated_text=generated_trajectories, log_pf=log_pf, log_pterm=log_pterm, log_r=log_r, log_r_unpenalized=log_r_unpenalized, termination_token_id=self.end_of_question_token_id, prompt_len=prompt_len)
+
         self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True, batch_size=self.hparams.n_samples)
         if last_log_r is not None:
-             self.log("train/avg_log_reward", last_log_r.mean(), on_step=True, on_epoch=True, sync_dist=True, batch_size=self.hparams.n_samples)
+             self.log("train/avg_log_reward_scaled", last_log_r.mean(), on_step=True, on_epoch=True, sync_dist=True, batch_size=self.hparams.n_samples)
+        # --- MODIFIED: Add a new log for the unscaled reward ---
+        if last_log_r_unpenalized is not None:
+             self.log("train/avg_log_reward_unscaled", last_log_r_unpenalized.mean(), on_step=True, on_epoch=True, sync_dist=True, batch_size=self.hparams.n_samples)
         self.log("train/avg_question_len", question_len.float().mean(), on_step=True, on_epoch=True, sync_dist=True, batch_size=self.hparams.n_samples)
         return loss
 

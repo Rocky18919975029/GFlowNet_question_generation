@@ -1,3 +1,5 @@
+# configs/model/gpt2-large.yaml
+
 # @package model
 # Defines the generative model to be fine-tuned.
 

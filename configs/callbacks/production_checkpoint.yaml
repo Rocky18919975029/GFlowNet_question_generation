@@ -1,20 +1,19 @@
-# configs/callbacks/resumable_checkpoint.yaml
+# configs/callbacks/production_checkpoint.yaml
 
 # @package callbacks
 
-# This callback is for iterative training runs on time-limited partitions.
-# It saves the last checkpoint frequently, allowing the next job to resume.
+# This callback is for a new, separate training run.
+# It saves checkpoints to a dedicated "production_checkpoints/" directory.
 - _target_: pytorch_lightning.callbacks.ModelCheckpoint
-  dirpath: "checkpoints/"
+  dirpath: "production_checkpoints/"  # <-- THE ONLY CHANGE NEEDED
   # The 'save_last' option creates a 'last.ckpt' symlink, which is perfect for resuming.
   save_last: true
   # Monitor the explicit step-level metric
   monitor: "train/loss_step"
   mode: "min"
   save_top_k: 1
-  # --- CHANGE FOR FAST DEBUGGING ---
   # Save a checkpoint based on the number of training steps (batches).
-  every_n_train_steps: 20
+  every_n_train_steps: 20 # You might want a less frequent interval for production
   # Explicitly disable saving at the end of an epoch. We only want step-based saving.
   save_on_train_epoch_end: false
   # The filename for the best model checkpoint. 'last.ckpt' will be handled automatically.

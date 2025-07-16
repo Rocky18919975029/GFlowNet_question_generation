@@ -54,7 +54,7 @@ class ContradictionReward:
 
         # If no tokens were generated, return zero reward.
         if gen_len <= 0:
-            return torch.zeros(batch_size, 0, device=self.base_model.device), None
+            return torch.zeros(batch_size, 0, device=self.base_model.device), torch.zeros(batch_size, 0, device=self.base_model.device)
 
         # --- REFACTOR GOAL 1: Eliminate N*L Problem ---
         # We now only operate on the final, complete questions.
@@ -75,11 +75,18 @@ class ContradictionReward:
         # 5. Combine scores into a single reward value per trajectory
         log_reward_final = log_c + self.likelihood_weight * log_p_likelihood
         
+        # --- NEW: Keep a copy of the unscaled reward before penalties ---
+        unscaled_reward = log_reward_final.clone()
+        
         # 6. Apply length penalty to the final reward
         # We check the actual length of generated tokens against min_len.
         actual_lengths = (final_questions_toks != self.base_tokenizer.pad_token_id).sum(dim=-1)
         len_penalty_mask = actual_lengths < self.min_len
         log_reward_final[len_penalty_mask] = -99.0
+
+        # --- MODIFIED: The unscaled reward will be used for logging ---
+        # It's better to log the reward after the penalty is applied, to see the "true" reward.
+        unscaled_penalized_reward = log_reward_final.clone()
 
         # 7. Scale final reward by temperature
         log_reward_final /= self.temperature
@@ -88,7 +95,9 @@ class ContradictionReward:
         # The reward for intermediate states is considered to be the same as the final state.
         # Note: We return `log_reward_final.unsqueeze(1)` to create a [batch_size, 1] tensor
         # which can then be broadcasted to the full trajectory length in the LightningModule.
-        return log_reward_final.unsqueeze(1), None # Return None for unpenalized reward for simplicity
+        
+        # --- MODIFIED: Return the unscaled (but penalized) reward as the second element ---
+        return log_reward_final.unsqueeze(1), unscaled_penalized_reward.unsqueeze(1)
 
     def _calculate_log_p_likelihood(self, trajectories, prompt_length: int):
         """Calculates log P(x|prompt) for the full sequence."""

@@ -1,3 +1,5 @@
+# train.py
+
 from types import MethodType
 import hydra
 import torch
@@ -36,6 +38,14 @@ def get_separated_models_and_tokenizer(config: DictConfig):
     sampler_model = AutoModelForCausalLM.from_pretrained(
         config.model.name, quantization_config=bnb_config, trust_remote_code=True
     )
+
+    # ===================================================================
+    # --- CHANGE APPLIED: Enable Gradient Checkpointing ---
+    # This reduces memory usage by re-computing activations during the
+    # backward pass instead of storing them all.
+    sampler_model.gradient_checkpointing_enable()
+    # ===================================================================
+    
     if config.model.use_4bit:
         sampler_model = prepare_model_for_kbit_training(sampler_model)
     lora_config = hydra.utils.instantiate(config.model.lora_config)
@@ -109,7 +119,6 @@ def train(config: DictConfig):
     strategy = config.trainer.strategy
     if strategy == "ddp":
         from lightning_fabric.plugins.environments import LightningEnvironment
-        # --- REVERT: Change back to True as is good practice ---
         strategy = pl.strategies.DDPStrategy(
             cluster_environment=LightningEnvironment(),
             find_unused_parameters=True

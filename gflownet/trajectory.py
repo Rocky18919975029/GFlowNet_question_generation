@@ -1,4 +1,4 @@
-# gflownet/trajectory.py (Corrected Version)
+# gflownet/trajectory.py 
 
 import torch
 

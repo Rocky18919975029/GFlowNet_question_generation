@@ -1,3 +1,5 @@
+# configs/callbacks/model_checkpoint.yaml
+
 # @package callbacks
 _target_: pytorch_lightning.callbacks.ModelCheckpoint
 monitor: "val/loss" # We are now logging this
