@@ -22,3 +22,9 @@ production_checkpoints/
 .vscode/
 .idea/
 .DS_Storeproduction_checkpoints/
+
+# Ignore all checkpoint files
+*.ckpt
+
+# Ignore entire checkpoints directory
+production_checkpoints/
