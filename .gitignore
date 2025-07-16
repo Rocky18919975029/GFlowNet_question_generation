@@ -16,6 +16,7 @@ __pycache__/
 data/
 checkpoints/
 wandb/
+production_checkpoints/
 
 # IDE and OS files
 .vscode/
