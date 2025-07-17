@@ -21,7 +21,6 @@ class RedisReplayBuffer:
         self.termination_token_id = termination_token_id
         try:
             self.client = redis.Redis(host=self.host, port=self.port, db=0)
-            # Ping the server to check the connection
             self.client.ping()
             print(f"--- Successfully connected to Redis at {host}:{port} ---")
         except redis.exceptions.ConnectionError as e:
@@ -71,7 +70,6 @@ class RedisReplayBuffer:
             return None, None
 
         try:
-            # ZREVRANGE gets the items with the HIGHEST scores (rewards)
             sampled_items = self.client.zrevrange(redis_key, 0, self.buffer_size - 1, withscores=True)
         except redis.exceptions.ResponseError:
             return None, None
@@ -79,13 +77,9 @@ class RedisReplayBuffer:
         if not sampled_items:
             return None, None
         
-        # We now have a list of top-reward items, let's randomly sample from it
         num_available = len(sampled_items)
-
-        # --- FIX: Manually set a seed for this operation to ensure all DDP ranks make the same choice ---
-        # This seed is deterministic based on the prompt, ensuring all ranks sample the same indices.
-        np.random.seed(abs(hash(redis_key)) % (2**32 - 1))
         
+        np.random.seed(abs(hash(redis_key)) % (2**32 - 1))
         indices_to_sample = np.random.choice(num_available, size=batch_size, replace=True)
 
         action_seqs = []
@@ -102,6 +96,7 @@ class RedisReplayBuffer:
             return None, None
 
         padded_actions = pad_sequence(action_seqs, batch_first=True, padding_value=self.termination_token_id)
-        padded_rewards = torch.stack(log_rewards)
+        # --- FIX: Ensure the returned reward tensor is 2D ---
+        padded_rewards = torch.stack(log_rewards).view(-1, 1)
 
         return padded_actions, padded_rewards

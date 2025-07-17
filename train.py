@@ -1,5 +1,10 @@
 # train.py
 
+import os
+
+os.environ['HTTP_PROXY'] = 'http://127.0.0.1:7890'
+os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:7890'
+
 from types import MethodType
 import hydra
 import torch
@@ -39,12 +44,7 @@ def get_separated_models_and_tokenizer(config: DictConfig):
         config.model.name, quantization_config=bnb_config, trust_remote_code=True
     )
 
-    # ===================================================================
-    # --- CHANGE APPLIED: Enable Gradient Checkpointing ---
-    # This reduces memory usage by re-computing activations during the
-    # backward pass instead of storing them all.
     sampler_model.gradient_checkpointing_enable()
-    # ===================================================================
     
     if config.model.use_4bit:
         sampler_model = prepare_model_for_kbit_training(sampler_model)
@@ -113,6 +113,7 @@ def train(config: DictConfig):
         n_probes=config.task.n_probes,
         use_4bit=config.model.use_4bit,
         checkpoint_save_interval=config.task.checkpoint_save_interval,
+        log_every_n_steps=config.training.log_every_n_steps,
     )
     logger = hydra.utils.instantiate(config.logger)
     
@@ -132,7 +133,9 @@ def train(config: DictConfig):
         max_epochs=config.training.epochs,
         accumulate_grad_batches=config.training.accumulate_grad_batches,
         logger=logger,
-        callbacks=[hydra.utils.instantiate(c) for c in config.callbacks]
+        callbacks=[hydra.utils.instantiate(c) for c in config.callbacks],
+        # --- FIX: Pass the logging frequency from the config to the Trainer ---
+        log_every_n_steps=config.training.log_every_n_steps,
     )
     if config.model.use_4bit:
         task.to = MethodType(lambda s, *args, **kwargs: s, task)

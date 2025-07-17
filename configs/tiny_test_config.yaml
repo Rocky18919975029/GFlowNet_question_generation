@@ -1,0 +1,19 @@
+# configs/tiny_test_config.yaml
+#
+# A simple, foolproof config for a fast sanity check.
+# It uses a tiny dataset and runs for only 1 epoch.
+
+defaults:
+  - config # Inherit all the defaults from the main config.yaml
+
+# --- OVERRIDES FOR THE TEST ---
+
+data:
+  # Point to the tiny 16-sample dataset
+  path: "data/zsre_16_samples.jsonl" 
+
+training:
+  # Run for only 1 epoch on this tiny dataset
+  epochs: 1
+  # Log every step to see everything
+  log_every_n_steps: 1

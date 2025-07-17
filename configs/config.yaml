@@ -23,9 +23,9 @@ buffer:
 
 training:
   lr: 1e-4
-  epochs: 100
+  epochs: 10
   accumulate_grad_batches: 8
-  log_every_n_steps: 100
+  log_every_n_steps: 1
 
 trainer:
   accelerator: "gpu"

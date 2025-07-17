@@ -1,0 +1,15 @@
+# configs/callbacks/diag_metrics_checkpoint.yaml
+
+# @package callbacks
+
+# This callback is for the diagnostic run with new metrics.
+# It saves checkpoints to a dedicated "diag_metrics_checkpoints/" directory.
+- _target_: pytorch_lightning.callbacks.ModelCheckpoint
+  dirpath: "diag_metrics_checkpoints/"  # <-- THE ONLY CHANGE
+  save_last: true
+  monitor: "train/loss_step"
+  mode: "min"
+  save_top_k: 1
+  every_n_train_steps: 20
+  save_on_train_epoch_end: false
+  filename: "best-loss-step={step}"
