@@ -1,10 +1,5 @@
 # train.py
 
-import os
-
-os.environ['HTTP_PROXY'] = 'http://127.0.0.1:7890'
-os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:7890'
-
 from types import MethodType
 import hydra
 import torch
@@ -61,6 +56,8 @@ def train(config: DictConfig):
         end_of_question_token_id = tokenizer.encode("?", add_special_tokens=False)[-1]
     except:
         end_of_question_token_id = tokenizer.convert_tokens_to_ids("?")
+    
+    # --- CHANGE: Pass new config parameters to ContradictionReward ---
     reward_model = ContradictionReward(
         base_model=base_model,
         base_tokenizer=tokenizer,
@@ -71,7 +68,12 @@ def train(config: DictConfig):
         min_len=config.task.min_question_len,
         temperature=config.task.reward_temp_start,
         nli_batch_size=config.reward.nli_batch_size,
+        use_hybrid_reward=config.task.use_hybrid_reward,
+        penalized_reward_end_step=config.task.penalized_reward_end_step,
+        contradiction_threshold=config.task.contradiction_threshold,
+        failure_penalty=config.task.failure_penalty,
     )
+    
     reward_buffer = RedisReplayBuffer(
         host=config.buffer.redis_host,
         port=config.buffer.redis_port,
@@ -91,6 +93,8 @@ def train(config: DictConfig):
         batch_size=1,
         num_workers=2
     )
+    
+    # --- CHANGE: Pass new config parameters to ContradictionGFNTask ---
     task = ContradictionGFNTask(
         model=sampler_model,
         tokenizer=tokenizer,
@@ -114,7 +118,12 @@ def train(config: DictConfig):
         use_4bit=config.model.use_4bit,
         checkpoint_save_interval=config.task.checkpoint_save_interval,
         log_every_n_steps=config.training.log_every_n_steps,
+        use_hybrid_reward=config.task.use_hybrid_reward,
+        penalized_reward_end_step=config.task.penalized_reward_end_step,
+        contradiction_threshold=config.task.contradiction_threshold,
+        failure_penalty=config.task.failure_penalty,
     )
+    
     logger = hydra.utils.instantiate(config.logger)
     
     strategy = config.trainer.strategy
@@ -130,16 +139,16 @@ def train(config: DictConfig):
         devices=config.trainer.devices,
         num_nodes=config.trainer.num_nodes,
         strategy=strategy,
-        max_epochs=config.training.epochs,
+        max_epochs=config.trainer.max_epochs,
         accumulate_grad_batches=config.training.accumulate_grad_batches,
         logger=logger,
         callbacks=[hydra.utils.instantiate(c) for c in config.callbacks],
-        # --- FIX: Pass the logging frequency from the config to the Trainer ---
         log_every_n_steps=config.training.log_every_n_steps,
     )
     if config.model.use_4bit:
         task.to = MethodType(lambda s, *args, **kwargs: s, task)
         task.cuda = MethodType(lambda s, *args, **kwargs: s, task)
+    
     trainer.fit(model=task, datamodule=data_module)
 
 if __name__ == "__main__":

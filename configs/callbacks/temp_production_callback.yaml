@@ -1,0 +1,11 @@
+
+- _target_: pytorch_lightning.callbacks.ModelCheckpoint
+  dirpath: "/home/data/zeshenghong/checkpoints/gfn_project/production_checkpoints_seed43/"
+  save_last: true
+  monitor: "train/avg_log_reward_unscaled" # Monitor a more meaningful metric for the best model
+  mode: "max"
+  save_top_k: 3 # Save the top 3 best models over the long run
+  every_n_train_steps: 100 # Save less frequently for a long run
+  save_on_train_epoch_end: false
+  filename: "best-reward-step={step}"
+

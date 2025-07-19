@@ -14,8 +14,9 @@ def generate_and_return_termination_logprob(
     top_p: float = 1.0,
     action_seq: torch.Tensor = None,
     skip_rewards: bool = False,
+    # --- NEW: Add current_step parameter ---
+    current_step: int = None,
 ):
-    # --- The entire top part of the function is correct and unchanged ---
     device = encoded_prompt.device
     batch_size = encoded_prompt.size(0)
     active_seqs = torch.ones(batch_size, dtype=torch.bool, device=device)
@@ -31,7 +32,7 @@ def generate_and_return_termination_logprob(
         logits = output.logits[:, -1, :]
 
         if action_seq is None:
-            # Sampling Mode... (no changes here)
+            # Sampling Mode...
             with torch.no_grad():
                 modified_logits = logits.clone()
                 if top_k > 0:
@@ -54,7 +55,7 @@ def generate_and_return_termination_logprob(
                 probs = (modified_logits / temperature).softmax(dim=-1)
                 token_ids = torch.multinomial(probs, num_samples=1)
         else:
-            # Replay Mode... (no changes here)
+            # Replay Mode...
             if i >= action_seq.size(-1):
                 token_ids = torch.full_like(action_seq[:, 0], termination_token_id).unsqueeze(-1)
             else:
@@ -73,14 +74,10 @@ def generate_and_return_termination_logprob(
     log_pf = torch.stack(log_pf, dim=1)
     log_pterm = torch.stack(log_pterm, dim=1)
     
-    # --- FIX: Handle the new four-value tuple returned by the reward function ---
     if skip_rewards:
-        # For replay mode, we don't need rewards, so return None for all four.
         reward_tuple = (None, None, None, None)
     else:
-        # For sampling mode, call the reward function. It now returns four values.
-        reward_tuple = reward_fn(state)
+        # --- CHANGE: Pass current_step to the reward function call ---
+        reward_tuple = reward_fn(state, current_step=current_step)
 
-    # This function's signature still returns 5 items. The last two (the components) will just be None in replay.
-    # The `forward` method in the LightningModule will unpack this correctly.
     return state, log_pf, log_pterm, reward_tuple, None

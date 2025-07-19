@@ -1,11 +1,10 @@
-# configs/config.yaml
-
 defaults:
   - _self_
   - model: gpt2-large
   - reward: deberta_v3
   - logger: wandb
-  - callbacks: model_checkpoint # This provides default, but we're not using it in train.py
+  # --- REVERTED: Back to a simple default. The run scripts will override this. ---
+  - callbacks: model_checkpoint
   - override hydra/job_logging: colorlog
   - override hydra/hydra_logging: colorlog
 
@@ -25,14 +24,16 @@ training:
   lr: 1e-4
   epochs: 10
   accumulate_grad_batches: 8
+  # --- For this stable version, let's keep logging frequent ---
   log_every_n_steps: 1
+
 
 trainer:
   accelerator: "gpu"
   strategy: "auto"
   devices: 1
   num_nodes: 1
-  # val_check_interval is not specified here or in run.sh, as this version has no validation.
+  max_epochs: 50 # Set the default here
 
 task:
   task_prompt: "Generate a question about {subject}:\nQuestion:"
@@ -68,10 +69,14 @@ task:
   reward_temp_end: 2.0
   reward_temp_horizon: 2000
   n_probes: 5
-  checkpoint_save_interval: 200 # This value will be used by the task's manual saving.
+  checkpoint_save_interval: 200
+  
+  # --- Hybrid Reward Parameters ---
+  use_hybrid_reward: true
+  penalized_reward_end_step: 2000
+  contradiction_threshold: -5.0
+  failure_penalty: -50.0
 
-# No `callbacks: []` or explicit `callbacks: ...` at the root level.
-# `train.py` passes `callbacks=[]` to the Trainer, effectively overriding any default.
 
 logger:
   _target_: pytorch_lightning.loggers.WandbLogger

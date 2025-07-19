@@ -18,6 +18,11 @@ class ContradictionReward:
         min_len: int,
         temperature: float = 1.0,
         nli_batch_size: int = 8,
+        # --- NEW PARAMETERS ---
+        use_hybrid_reward: bool = False,
+        penalized_reward_end_step: int = 0,
+        contradiction_threshold: float = -99.0,
+        failure_penalty: float = -99.0,
         device: torch.device = None,
     ):
         self.base_model = base_model
@@ -39,15 +44,22 @@ class ContradictionReward:
         self.min_len = min_len
         self.temperature = temperature
         self.nli_batch_size = nli_batch_size
+        
+        # --- NEW ASSIGNMENTS ---
+        self.use_hybrid_reward = use_hybrid_reward
+        self.penalized_reward_end_step = penalized_reward_end_step
+        self.contradiction_threshold = contradiction_threshold
+        self.failure_penalty = failure_penalty
+        
         self.device = device
 
     @torch.no_grad()
-    def score(self, generated_trajectories, z_prime_text: str, prompt_length: int):
+    def score(self, generated_trajectories, z_prime_text: str, prompt_length: int, current_step: int = None):
         batch_size, seq_len = generated_trajectories.shape
         gen_len = seq_len - prompt_length
 
         if gen_len <= 0:
-            zeros = torch.zeros(batch_size, 0, device=self.base_model.device)
+            zeros = torch.zeros(batch_size, 1, device=self.base_model.device)
             return zeros, zeros, zeros, zeros
 
         final_questions_toks = generated_trajectories[:, prompt_length:]
@@ -57,14 +69,27 @@ class ContradictionReward:
         log_c = self._calculate_contradiction_score(answers_text, z_prime_text)
         log_p_likelihood = self._calculate_log_p_likelihood(generated_trajectories, prompt_length)
         
-        log_reward_final = log_c + self.likelihood_weight * log_p_likelihood
+        # --- HYBRID REWARD LOGIC ---
+        is_penalized_phase = self.use_hybrid_reward and current_step is not None and current_step < self.penalized_reward_end_step
+
+        if is_penalized_phase:
+            # Phase 1: Penalized Reward
+            unscaled_reward = log_p_likelihood.clone()
+            passes_check = log_c > self.contradiction_threshold
+            unscaled_reward[~passes_check] += self.failure_penalty
+        else:
+            # Phase 2: Composite Reward (Your original logic)
+            unscaled_reward = log_c + self.likelihood_weight * log_p_likelihood
+
+        # --- APPLY PENALTIES AND SCALING (COMMON TO BOTH STRATEGIES) ---
         
-        unscaled_penalized_reward = log_reward_final.clone()
-        
+        # Apply length penalty
         actual_lengths = (final_questions_toks != self.base_tokenizer.pad_token_id).sum(dim=-1)
         len_penalty_mask = actual_lengths < self.min_len
+        unscaled_penalized_reward = unscaled_reward.clone()
         unscaled_penalized_reward[len_penalty_mask] = -99.0
 
+        # Scale by temperature
         log_reward_final_scaled = unscaled_penalized_reward / self.temperature
         
         return (
@@ -79,7 +104,6 @@ class ContradictionReward:
         if len(texts) < 2:
             return 0.0
 
-        # --- FIX: Explicitly disable the progress bar for the encode method ---
         embeddings = self.diversity_model.encode(
             texts, 
             convert_to_tensor=True, 
