@@ -57,7 +57,7 @@ def train(config: DictConfig):
     except:
         end_of_question_token_id = tokenizer.convert_tokens_to_ids("?")
     
-    # --- CHANGE: Pass new config parameters to ContradictionReward ---
+    # --- MODIFIED: Pass new config parameters for answer quality to ContradictionReward ---
     reward_model = ContradictionReward(
         base_model=base_model,
         base_tokenizer=tokenizer,
@@ -72,6 +72,9 @@ def train(config: DictConfig):
         penalized_reward_end_step=config.task.penalized_reward_end_step,
         contradiction_threshold=config.task.contradiction_threshold,
         failure_penalty=config.task.failure_penalty,
+        answer_quality_weight=config.task.answer_quality_weight,
+        answer_quality_threshold=config.task.answer_quality_threshold,
+        answer_failure_penalty=config.task.answer_failure_penalty,
     )
     
     reward_buffer = RedisReplayBuffer(
@@ -94,7 +97,6 @@ def train(config: DictConfig):
         num_workers=2
     )
     
-    # --- CHANGE: Pass new config parameters to ContradictionGFNTask ---
     task = ContradictionGFNTask(
         model=sampler_model,
         tokenizer=tokenizer,

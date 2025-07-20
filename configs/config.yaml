@@ -33,7 +33,7 @@ trainer:
   strategy: "auto"
   devices: 1
   num_nodes: 1
-  max_epochs: 50 # Set the default here
+  max_epochs: 10 # Set the default here
 
 task:
   task_prompt: "Generate a question about {subject}:\nQuestion:"
@@ -73,9 +73,14 @@ task:
   
   # --- Hybrid Reward Parameters ---
   use_hybrid_reward: true
-  penalized_reward_end_step: 2000
-  contradiction_threshold: -5.0
+  penalized_reward_end_step: 150
+  contradiction_threshold: -6.0
   failure_penalty: -50.0
+
+  # --- NEW: Parameters for Answer Quality Reward Component ---
+  answer_quality_weight: 0.0       # Weight for the answer likelihood score. Set to 0.0 to disable.
+  answer_quality_threshold: -20.0  # Log-likelihood threshold below which answers are considered "low quality".
+  answer_failure_penalty: 0.0    # Penalty to apply to the reward for low-quality answers.
 
 
 logger:

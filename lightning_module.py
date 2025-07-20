@@ -31,6 +31,7 @@ class ContradictionGFNTask(pl.LightningModule):
         use_4bit: bool = False,
     ):
         super().__init__()
+        # NOTE: New answer_quality params from config are not needed here, they are handled by the reward_model
         self.save_hyperparameters(ignore=[
             "model", "tokenizer", "reward_model", "reward_buffer", "use_4bit",
             "train_probes", "use_hybrid_reward", "penalized_reward_end_step",
@@ -92,7 +93,7 @@ class ContradictionGFNTask(pl.LightningModule):
             use_buffer = random.random() < self.hparams.use_buffer_prob
             
             action_seq_rank0, log_r_final_rank0, log_r_unscaled_rank0 = None, None, None
-            log_c_rank0, log_p_likelihood_rank0 = None, None
+            log_c_rank0, log_p_likelihood_rank0, log_p_answer_rank0 = None, None, None # MODIFIED: Added log_p_answer
             semantic_diversity_rank0 = 0.0
 
             if use_buffer:
@@ -100,8 +101,10 @@ class ContradictionGFNTask(pl.LightningModule):
                 if buffer_sample and buffer_sample[0] is not None:
                     action_seq_rank0, log_r_unscaled_rank0 = buffer_sample
                     log_r_final_rank0 = log_r_unscaled_rank0 / self.reward_model.temperature
+                    # Use proxies for buffer samples as we don't have the decomposed scores
                     log_c_rank0 = log_r_unscaled_rank0
                     log_p_likelihood_rank0 = torch.zeros_like(log_r_unscaled_rank0)
+                    log_p_answer_rank0 = torch.zeros_like(log_r_unscaled_rank0)
                 else:
                     use_buffer = False
             
@@ -118,7 +121,8 @@ class ContradictionGFNTask(pl.LightningModule):
                     current_step=self.global_step
                 )
                 
-                log_r_final_rank0, log_r_unscaled_rank0, log_c_rank0, log_p_likelihood_rank0 = reward_tuple
+                # --- MODIFIED: Unpack 5 values from the reward tuple ---
+                log_r_final_rank0, log_r_unscaled_rank0, log_c_rank0, log_p_likelihood_rank0, log_p_answer_rank0 = reward_tuple
                 
                 action_seq_rank0 = generated_trajectories_rank0[:, prompt_len:]
                 
@@ -138,25 +142,32 @@ class ContradictionGFNTask(pl.LightningModule):
             log_r_unscaled_rank0 = log_r_unscaled_rank0.cpu() if log_r_unscaled_rank0 is not None else torch.empty(0)
             log_c_rank0 = log_c_rank0.cpu() if log_c_rank0 is not None else torch.empty(0)
             log_p_likelihood_rank0 = log_p_likelihood_rank0.cpu() if log_p_likelihood_rank0 is not None else torch.empty(0)
+            log_p_answer_rank0 = log_p_answer_rank0.cpu() if log_p_answer_rank0 is not None else torch.empty(0)
             
+            # --- MODIFIED: Add new tensor to broadcast list ---
             objects_to_broadcast = [
                 action_seq_rank0, log_r_final_rank0, log_r_unscaled_rank0,
-                log_c_rank0, log_p_likelihood_rank0, semantic_diversity_rank0
+                log_c_rank0, log_p_likelihood_rank0, semantic_diversity_rank0,
+                log_p_answer_rank0
             ]
         else:
-            objects_to_broadcast = [None, None, None, None, None, None]
+            objects_to_broadcast = [None] * 7 # MODIFIED: List now has 7 items
 
         if self.trainer.world_size > 1:
             torch.distributed.broadcast_object_list(objects_to_broadcast, src=0)
         
+        # --- MODIFIED: Unpack 7 values ---
         (action_seq, log_r_final, log_r_unscaled,
-         log_c, log_p_likelihood, semantic_diversity) = objects_to_broadcast
+         log_c, log_p_likelihood, semantic_diversity,
+         log_p_answer) = objects_to_broadcast
         
         action_seq = action_seq.to(self.device) if action_seq.numel() > 0 else torch.empty(0, 0, dtype=torch.long, device=self.device)
         log_r_final = log_r_final.to(self.device) if log_r_final.numel() > 0 else torch.empty(0, device=self.device)
         log_r_unscaled = log_r_unscaled.to(self.device) if log_r_unscaled.numel() > 0 else torch.empty(0, device=self.device)
         log_c = log_c.to(self.device) if log_c.numel() > 0 else torch.empty(0, device=self.device)
         log_p_likelihood = log_p_likelihood.to(self.device) if log_p_likelihood.numel() > 0 else torch.empty(0, device=self.device)
+        # --- MODIFIED: Move new tensor to device ---
+        log_p_answer = log_p_answer.to(self.device) if log_p_answer.numel() > 0 else torch.empty(0, device=self.device)
 
         generated_trajectories, log_pf, log_pterm, _, _ = self.forward(
             prompt_tokens, z_prime_text=z_prime_text, reward_fn=None, action_seq=action_seq
@@ -168,14 +179,13 @@ class ContradictionGFNTask(pl.LightningModule):
             log_r_unpenalized = log_r_unscaled.view(-1, 1).expand(-1, gen_len)
         else:
             loss = torch.tensor(0.0, device=self.device, requires_grad=True)
-            self.log("train/loss", loss, batch_size=self.hparams.n_samples) # Still log with batch_size
+            self.log("train/loss", loss, batch_size=self.hparams.n_samples)
             return loss
 
         loss = modified_subtb_loss(log_pf=log_pf, log_r=log_r, log_pterm=log_pterm, generated_text=generated_trajectories, termination_token_id=self.end_of_question_token_id, prompt_len=prompt_len, subtb_lambda=self.hparams.subtb_lambda)
         
         _, last_log_r, last_log_r_unpenalized, question_len = get_termination_vals(generated_text=generated_trajectories, log_pf=log_pf, log_pterm=log_pterm, log_r=log_r, log_r_unpenalized=log_r_unpenalized, termination_token_id=self.end_of_question_token_id, prompt_len=prompt_len)
 
-        # --- FIX: ADD BATCH_SIZE TO ALL LOG CALLS TO SUPPRESS WARNINGS ---
         log_batch_size = self.hparams.n_samples
         
         self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True, rank_zero_only=True, batch_size=log_batch_size)
@@ -190,13 +200,17 @@ class ContradictionGFNTask(pl.LightningModule):
         if log_p_likelihood.numel() > 0:
             self.log("train/avg_log_likelihood", log_p_likelihood.mean(), on_step=True, on_epoch=True, rank_zero_only=True, batch_size=log_batch_size)
         
+        # --- NEW: Log the answer quality score ---
+        if log_p_answer.numel() > 0:
+            self.log("train/avg_log_p_answer", log_p_answer.mean(), on_step=True, on_epoch=True, rank_zero_only=True, batch_size=log_batch_size)
+            
         self.log("train/semantic_diversity", semantic_diversity, on_step=True, on_epoch=False, rank_zero_only=True, batch_size=log_batch_size)
-        # --- END OF FIX ---
 
         if self.trainer.is_global_zero and self.global_step > 0 and self.global_step % self.hparams.log_every_n_steps == 0:
             questions = self.tokenizer.batch_decode(generated_trajectories[:, prompt_len:], skip_special_tokens=True)
             
-            columns = ["Step", "Subject", "Generated Question", "Unscaled Reward", "Contradiction Score", "Likelihood Score"]
+            # --- MODIFIED: Add new column to probes table ---
+            columns = ["Step", "Subject", "Generated Question", "Unscaled Reward", "Contradiction Score", "Likelihood Score", "Answer Likelihood"]
             table = wandb.Table(columns=columns)
 
             for i in range(min(self.hparams.n_probes, len(questions))):
@@ -206,7 +220,9 @@ class ContradictionGFNTask(pl.LightningModule):
                     questions[i],
                     log_r_unscaled[i].item() if log_r_unscaled.numel() > i else "N/A",
                     log_c[i].item() if log_c.numel() > i else "N/A",
-                    log_p_likelihood[i].item() if log_p_likelihood.numel() > i else "N/A"
+                    log_p_likelihood[i].item() if log_p_likelihood.numel() > i else "N/A",
+                    # --- MODIFIED: Add new data to probes table ---
+                    log_p_answer[i].item() if log_p_answer.numel() > i else "N/A"
                 )
             self.logger.experiment.log({"generation_probes": table})
 

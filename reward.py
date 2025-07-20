@@ -18,11 +18,14 @@ class ContradictionReward:
         min_len: int,
         temperature: float = 1.0,
         nli_batch_size: int = 8,
-        # --- NEW PARAMETERS ---
         use_hybrid_reward: bool = False,
         penalized_reward_end_step: int = 0,
         contradiction_threshold: float = -99.0,
         failure_penalty: float = -99.0,
+        # --- NEW PARAMETERS ---
+        answer_quality_weight: float = 0.0,
+        answer_quality_threshold: float = -99.0,
+        answer_failure_penalty: float = 0.0,
         device: torch.device = None,
     ):
         self.base_model = base_model
@@ -45,11 +48,15 @@ class ContradictionReward:
         self.temperature = temperature
         self.nli_batch_size = nli_batch_size
         
-        # --- NEW ASSIGNMENTS ---
         self.use_hybrid_reward = use_hybrid_reward
         self.penalized_reward_end_step = penalized_reward_end_step
         self.contradiction_threshold = contradiction_threshold
         self.failure_penalty = failure_penalty
+        
+        # --- NEW ASSIGNMENTS ---
+        self.answer_quality_weight = answer_quality_weight
+        self.answer_quality_threshold = answer_quality_threshold
+        self.answer_failure_penalty = answer_failure_penalty
         
         self.device = device
 
@@ -60,33 +67,46 @@ class ContradictionReward:
 
         if gen_len <= 0:
             zeros = torch.zeros(batch_size, 1, device=self.base_model.device)
-            return zeros, zeros, zeros, zeros
+            return zeros, zeros, zeros, zeros, zeros # Now returns 5 items
 
         final_questions_toks = generated_trajectories[:, prompt_length:]
         final_questions_text = self.base_tokenizer.batch_decode(final_questions_toks, skip_special_tokens=True)
-        answers_text = self._generate_answers(final_questions_text)
+        
+        # --- MODIFIED: Prepare for answer likelihood calculation ---
+        full_prompts_for_answers = [self.answer_prompt_template.format(question=q) for q in final_questions_text]
+        answers_text = self._generate_answers(full_prompts_for_answers)
         
         log_c = self._calculate_contradiction_score(answers_text, z_prime_text)
-        log_p_likelihood = self._calculate_log_p_likelihood(generated_trajectories, prompt_length)
+        log_p_question = self._calculate_log_p_likelihood(generated_trajectories, prompt_length)
         
+        # --- NEW: Calculate answer quality score ---
+        log_p_answer = torch.zeros_like(log_p_question)
+        if self.answer_quality_weight != 0 or self.answer_failure_penalty != 0:
+             log_p_answer = self._calculate_log_p_answer(full_prompts_for_answers, answers_text)
+
         # --- HYBRID REWARD LOGIC ---
         is_penalized_phase = self.use_hybrid_reward and current_step is not None and current_step < self.penalized_reward_end_step
 
         if is_penalized_phase:
             # Phase 1: Penalized Reward
-            unscaled_reward = log_p_likelihood.clone()
+            unscaled_reward = log_p_question.clone()
             passes_check = log_c > self.contradiction_threshold
             unscaled_reward[~passes_check] += self.failure_penalty
         else:
-            # Phase 2: Composite Reward (Your original logic)
-            unscaled_reward = log_c + self.likelihood_weight * log_p_likelihood
+            # Phase 2: Composite Reward (now with robust answer quality term)
+            unscaled_reward = log_c + self.likelihood_weight * log_p_question + self.answer_quality_weight * log_p_answer
 
-        # --- APPLY PENALTIES AND SCALING (COMMON TO BOTH STRATEGIES) ---
-        
+        # --- APPLY PENALTIES AND SCALING ---
+        unscaled_penalized_reward = unscaled_reward.clone()
+
+        # NEW: Apply penalty for low-quality answers
+        if self.answer_failure_penalty != 0:
+            low_quality_mask = log_p_answer < self.answer_quality_threshold
+            unscaled_penalized_reward[low_quality_mask] += self.answer_failure_penalty
+
         # Apply length penalty
         actual_lengths = (final_questions_toks != self.base_tokenizer.pad_token_id).sum(dim=-1)
         len_penalty_mask = actual_lengths < self.min_len
-        unscaled_penalized_reward = unscaled_reward.clone()
         unscaled_penalized_reward[len_penalty_mask] = -99.0
 
         # Scale by temperature
@@ -96,7 +116,8 @@ class ContradictionReward:
             log_reward_final_scaled.unsqueeze(1), 
             unscaled_penalized_reward.unsqueeze(1), 
             log_c.unsqueeze(1), 
-            log_p_likelihood.unsqueeze(1)
+            log_p_question.unsqueeze(1),
+            log_p_answer.unsqueeze(1) # Add the new score for logging
         )
     
     @torch.no_grad()
@@ -133,6 +154,32 @@ class ContradictionReward:
         
         return token_log_probs.sum(dim=-1)
 
+    # --- NEW METHOD ---
+    def _calculate_log_p_answer(self, full_prompts_for_answers: list[str], answers: list[str]):
+        """
+        Calculates the log-likelihood of the generated answers given the full prompts
+        (which include the generated questions).
+        """
+        full_sequences = [prompt + ans for prompt, ans in zip(full_prompts_for_answers, answers)]
+        
+        inputs = self.base_tokenizer(full_sequences, return_tensors='pt', padding=True, truncation=True, max_length=self.base_model.config.n_positions).to(self.base_model.device)
+        prompt_inputs = self.base_tokenizer(full_prompts_for_answers, return_tensors='pt', padding=True, truncation=True, max_length=self.base_model.config.n_positions)
+        prompt_lengths = prompt_inputs.input_ids.shape[1]
+        
+        with torch.no_grad():
+            logits = self.base_model(**inputs).logits
+
+        answer_logits = logits[:, prompt_lengths - 1 : -1]
+        answer_tokens = inputs.input_ids[:, prompt_lengths:]
+        
+        log_probs = answer_logits.log_softmax(-1)
+        token_log_probs = log_probs.gather(-1, answer_tokens.unsqueeze(-1)).squeeze(-1)
+        
+        mask = (answer_tokens != self.base_tokenizer.pad_token_id)
+        token_log_probs = token_log_probs * mask
+        
+        return token_log_probs.sum(dim=-1)
+
     def _calculate_contradiction_score(self, answers: list[str], z_prime_text: str):
         self.nli_model.to(self.base_model.device)
         premise_hypothesis_pairs = [[z_prime_text, ans] for ans in answers]
@@ -147,10 +194,9 @@ class ContradictionReward:
         
         return torch.cat(all_log_c_scores)
         
-    def _generate_answers(self, questions: list[str]) -> list[str]:
+    # --- MODIFIED: Takes full_prompts as input now ---
+    def _generate_answers(self, full_prompts: list[str]) -> list[str]:
         answers = []
-        full_prompts = [self.answer_prompt_template.format(question=q) for q in questions]
-
         for i in range(0, len(full_prompts), self.nli_batch_size):
             batch_prompts = full_prompts[i : i + self.nli_batch_size]
             inputs = self.base_tokenizer(batch_prompts, return_tensors='pt', padding=True).to(self.base_model.device)
