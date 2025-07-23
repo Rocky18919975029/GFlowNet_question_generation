@@ -57,7 +57,6 @@ def train(config: DictConfig):
     except:
         end_of_question_token_id = tokenizer.convert_tokens_to_ids("?")
     
-    # --- MODIFIED: Pass new config parameters for answer quality to ContradictionReward ---
     reward_model = ContradictionReward(
         base_model=base_model,
         base_tokenizer=tokenizer,
@@ -86,7 +85,8 @@ def train(config: DictConfig):
     
     if int(os.environ.get("RANK", 0)) == 0:
         print("--- Rank 0 process is resetting the Redis buffer. ---", flush=True)
-        reward_buffer.reset()
+        # Note: For the sweep, you might want to comment this out to use the seeded buffer
+        # reward_buffer.reset() 
         
     data_module = ScalableDataModule(
         data_path=config.data.path,
@@ -97,6 +97,7 @@ def train(config: DictConfig):
         num_workers=2
     )
     
+    # --- THIS IS THE MODIFIED SECTION ---
     task = ContradictionGFNTask(
         model=sampler_model,
         tokenizer=tokenizer,
@@ -124,7 +125,11 @@ def train(config: DictConfig):
         penalized_reward_end_step=config.task.penalized_reward_end_step,
         contradiction_threshold=config.task.contradiction_threshold,
         failure_penalty=config.task.failure_penalty,
+        # Add the new argument for the QA logger path
+        qa_log_path=config.task.get("qa_log_path", None),
+        buffer_add_threshold=config.task.get("buffer_add_threshold", -999.0)
     )
+    # --- END OF MODIFIED SECTION ---
     
     logger = hydra.utils.instantiate(config.logger)
     

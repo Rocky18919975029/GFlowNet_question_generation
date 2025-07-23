@@ -1,0 +1,21 @@
+# configs/dataseed.yaml
+
+# This is now a simple, self-contained config file.
+
+external_llm:
+  provider: "deepseek"
+  model_name: "deepseek-chat"
+  base_url: "https://api.deepseek.com"
+
+num_candidates_per_item: 50
+num_top_to_select: 5
+evaluation_batch_size: 4
+candidate_pool_output_path: "candidate_pool.jsonl"
+
+prompt_template: |
+  You are an expert question-generator. Your task is to generate {N} different questions about the subject: "{subject}".
+  The questions should be phrased in a way that the most natural and direct answer would be the fact: "{original_fact}".
+  Do not number the questions. Provide each question on a new line.
+  Subject: {subject}
+  Original Fact: {original_fact}
+  Generated Questions:

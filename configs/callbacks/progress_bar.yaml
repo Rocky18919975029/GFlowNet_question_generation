@@ -1,8 +1,0 @@
-# configs/callbacks/progress_bar.yaml
-
-# @package _group_
-# This defines the progress bar callback. `leave=True` is the default, which
-# causes a new bar to be printed for each batch. Setting `leave=False` ensures
-# the bar updates in-place.
-- _target_: pytorch_lightning.callbacks.RichProgressBar
-  leave: false

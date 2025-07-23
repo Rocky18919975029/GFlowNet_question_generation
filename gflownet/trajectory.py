@@ -5,7 +5,7 @@ import torch
 def generate_and_return_termination_logprob(
     model,
     encoded_prompt,
-    reward_fn,
+    reward_fn, # This is now the _reward_fn_wrapper from lightning_module
     termination_token_id: int,
     max_len: int,
     min_len: int,
@@ -14,7 +14,6 @@ def generate_and_return_termination_logprob(
     top_p: float = 1.0,
     action_seq: torch.Tensor = None,
     skip_rewards: bool = False,
-    # --- NEW: Add current_step parameter ---
     current_step: int = None,
 ):
     device = encoded_prompt.device
@@ -74,10 +73,13 @@ def generate_and_return_termination_logprob(
     log_pf = torch.stack(log_pf, dim=1)
     log_pterm = torch.stack(log_pterm, dim=1)
     
+    # --- THIS IS THE MODIFIED REWARD HANDLING SECTION ---
     if skip_rewards:
-        reward_tuple = (None, None, None, None)
+        # If skipping rewards, we don't have answers_text
+        reward_tuple_and_answers = ((None, None, None, None, None), None)
     else:
-        # --- CHANGE: Pass current_step to the reward function call ---
-        reward_tuple = reward_fn(state, current_step=current_step)
+        # Call the reward function wrapper with the final completed trajectory
+        reward_tuple_and_answers = reward_fn(state)
 
-    return state, log_pf, log_pterm, reward_tuple, None
+    # --- THIS IS THE MODIFIED RETURN STATEMENT ---
+    return state, log_pf, log_pterm, reward_tuple_and_answers, None

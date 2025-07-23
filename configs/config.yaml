@@ -1,3 +1,5 @@
+# configs/config.yaml
+
 defaults:
   - _self_
   - model: gpt2-large
@@ -34,6 +36,7 @@ trainer:
   devices: 1
   num_nodes: 1
   max_epochs: 10 # Set the default here
+  max_steps: null
 
 task:
   task_prompt: "Generate a question about {subject}:\nQuestion:"
@@ -81,6 +84,10 @@ task:
   answer_quality_weight: 0.0       # Weight for the answer likelihood score. Set to 0.0 to disable.
   answer_quality_threshold: -20.0  # Log-likelihood threshold below which answers are considered "low quality".
   answer_failure_penalty: 0.0    # Penalty to apply to the reward for low-quality answers.
+
+  qa_log_path: "training_probes/qa_log.txt"
+
+  buffer_add_threshold: -10.0
 
 
 logger:
